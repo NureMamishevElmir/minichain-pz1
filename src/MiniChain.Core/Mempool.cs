@@ -33,8 +33,9 @@ public sealed class Mempool
 
         // 4. баланс з урахуванням того, що відправник уже витратив у черзі
         long available = chain.Balance(tx.From) - PendingSpend(tx.From);
-        if (available < tx.Amount + tx.Fee)
-            return $"недостатньо коштів: доступно {available}, потрібно {tx.Amount + tx.Fee} (можлива подвійна витрата)";
+        // порівнюємо без додавання Amount + Fee, щоб сума long не переповнилась у від'ємне число
+        if (tx.Amount > available - tx.Fee)
+            return $"недостатньо коштів: доступно {available}, потрібно {(decimal)tx.Amount + tx.Fee} (можлива подвійна витрата)";
         if (chain.ContainsTx(tx.Id)) return "така транзакція вже є в ланцюгу";
 
         _txs.Add(tx);

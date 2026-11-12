@@ -62,9 +62,10 @@ dotnet src/MiniChain.Node/bin/Release/net8.0/MiniChain.Node.dll --port 5003 --pe
 ## Тести та експеримент
 
 ```powershell
-dotnet test                                                   # 21 автоматичний тест
+dotnet test                                                   # 22 автоматичні тести
 dotnet run -c Release --project src/MiniChain.Experiment -- difficulty 10 12 16 20 24
 dotnet run -c Release --project src/MiniChain.Experiment -- adjust 80 1000
+dotnet run -c Release --project src/MiniChain.Experiment -- replot   # графік з наявного CSV без нового майнінгу
 ```
 
 Результати (CSV і графіки) — у теці `results/`.

@@ -146,7 +146,9 @@ public sealed class Blockchain
             if (tx.Amount <= 0 || tx.Fee < 0) return $"{where}: недопустима сума або комісія";
             if (_txIds.Contains(tx.Id) || !seen.Add(tx.Id)) return $"{where}: дублікат транзакції";
             if (tx.Nonce != Non(tx.From)) return $"{where}: nonce {tx.Nonce}, очікувався {Non(tx.From)}";
-            if (Bal(tx.From) < tx.Amount + tx.Fee) return $"{where}: витрачено більше, ніж є на рахунку ({Bal(tx.From)})";
+            // не «Bal < Amount + Fee»: сума long може переповнитись (Amount = long.MaxValue, Fee = 1) і стати від'ємною.
+            // Bal ≥ 0 і Fee ≥ 0, тому Bal − Fee не переповнюється.
+            if (tx.Amount > Bal(tx.From) - tx.Fee) return $"{where}: витрачено більше, ніж є на рахунку ({Bal(tx.From)})";
             balances[tx.From] = Bal(tx.From) - tx.Amount - tx.Fee;
             balances[tx.To] = Bal(tx.To) + tx.Amount;
             nonces[tx.From] = Non(tx.From) + 1;
