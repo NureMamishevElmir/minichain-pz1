@@ -237,6 +237,25 @@ public class AttackTests
     }
 }
 
+public class OverflowTests
+{
+    [Fact]
+    public void HugeAmount_CannotOverflowBalanceCheck_InMempoolOrBlock()
+    {
+        // Amount = long.MaxValue, Fee = 1: сума Amount + Fee переповнюється у від'ємне число,
+        // і наївна перевірка «баланс < Amount + Fee» пропустила б транзакцію — монети з нічого
+        var (chain, alice, _) = T.Funded();
+        var evil = Wallet.Create();
+        var tx = Transaction.Create(alice, evil.Address, long.MaxValue, 1, chain.NextNonce(alice.Address));
+        Assert.Contains("недостатньо коштів", new Mempool().TryAdd(tx, chain));
+
+        var block = chain.CreateCandidate(evil.Address, new[] { tx }, chain.Tip.Header.Timestamp + 1000);
+        ProofOfWork.Mine(block.Header); block.Hash = block.Header.ComputeHash();
+        Assert.Contains("витрачено більше", chain.TryAddBlock(block));
+        Assert.Equal(0, chain.Balance(evil.Address));
+    }
+}
+
 public class ForkAndMempoolTests
 {
     [Fact]
