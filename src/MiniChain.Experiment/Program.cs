@@ -9,6 +9,7 @@ using OxyPlot.Series;
 // Експерименти:
 //   dotnet run -c Release --project src/MiniChain.Experiment -- difficulty [runs] [bits...]
 //   dotnet run -c Release --project src/MiniChain.Experiment -- adjust [blocks] [targetMs]
+//   dotnet run -c Release --project src/MiniChain.Experiment -- replot      (графік з наявного difficulty_runs.csv)
 CultureInfo.DefaultThreadCurrentCulture = CultureInfo.InvariantCulture;
 Console.OutputEncoding = System.Text.Encoding.UTF8;
 var mode = args.FirstOrDefault() ?? "difficulty";
@@ -17,7 +18,8 @@ Directory.CreateDirectory(outDir);
 
 if (mode == "difficulty") DifficultyExperiment();
 else if (mode == "adjust") AdjustExperiment();
-else Console.WriteLine("режими: difficulty | adjust");
+else if (mode == "replot") Replot();
+else Console.WriteLine("режими: difficulty | adjust | replot");
 
 // ---------------------------------------------------------------- 1. час майнінгу від складності
 void DifficultyExperiment()
@@ -47,7 +49,21 @@ void DifficultyExperiment()
 
     File.WriteAllLines(Path.Combine(outDir, "difficulty_runs.csv"),
         rows.Select(r => $"{r.bits},{r.run},{r.sec:F6},{r.attempts}").Prepend("bits,run,seconds,attempts"));
+    SummarizeAndPlot(rows, levels, runs);
+}
 
+// перебудувати таблицю і графік з уже записаного difficulty_runs.csv, не перемайнюючи
+void Replot()
+{
+    var rows = File.ReadAllLines(Path.Combine(outDir, "difficulty_runs.csv")).Skip(1)
+        .Select(l => l.Split(','))
+        .Select(f => (bits: int.Parse(f[0]), run: int.Parse(f[1]), sec: double.Parse(f[2], CultureInfo.InvariantCulture), attempts: long.Parse(f[3])))
+        .ToList();
+    SummarizeAndPlot(rows, rows.Select(r => r.bits).Distinct().ToArray(), rows.Max(r => r.run));
+}
+
+void SummarizeAndPlot(List<(int bits, int run, double sec, long attempts)> rows, int[] levels, int runs)
+{
     double rate = rows.Sum(r => r.attempts) / rows.Sum(r => r.sec);   // хешів за секунду
     var summary = levels.Select(b =>
     {
@@ -88,13 +104,26 @@ void DifficultyExperiment()
     });
     var runsSeries = new ScatterSeries { Title = $"окремі запуски ({runs} на рівень)", MarkerType = MarkerType.Circle, MarkerSize = 3, MarkerFill = OxyColor.FromAColor(110, OxyColors.SteelBlue) };
     foreach (var r in rows) runsSeries.Points.Add(new ScatterPoint(r.bits + (r.run - runs / 2.0) * 0.08, Math.Max(r.sec, 1e-5)));
-    var meanSeries = new ScatterErrorSeries { Title = "середнє ± стандартне відхилення", MarkerType = MarkerType.Square, MarkerSize = 5, MarkerFill = OxyColors.DarkRed, ErrorBarColor = OxyColors.DarkRed, ErrorBarStopWidth = 4, ErrorBarStrokeThickness = 1.5 };
-    foreach (var s in summary) meanSeries.Points.Add(new ScatterErrorPoint(s.bits, s.mean, 0, Math.Min(s.sd, s.mean * 0.95)));
+    // Розкид малюємо вручну: ScatterErrorSeries в OxyPlot відкладає лише ErrorY/2 в кожен бік.
+    // Час майнінгу розподілений експоненційно (σ ≈ середнє), тому mean − σ часто ≤ 0, а на лог. шкалі
+    // таке значення не показати — нижню межу обмежуємо найшвидшим запуском цього рівня.
+    var meanSeries = new ScatterSeries { Title = "середнє ± σ (нижня межа — не нижче мінімального запуску)", MarkerType = MarkerType.Square, MarkerSize = 5, MarkerFill = OxyColors.DarkRed };
+    var errorBars = new LineSeries { Color = OxyColors.DarkRed, StrokeThickness = 1.5 };
+    foreach (var s in summary)
+    {
+        meanSeries.Points.Add(new ScatterPoint(s.bits, s.mean));
+        double lo = Math.Max(s.mean - s.sd, Math.Max(s.min, 1e-5)), hi = s.mean + s.sd;
+        errorBars.Points.Add(new DataPoint(s.bits, lo)); errorBars.Points.Add(new DataPoint(s.bits, hi)); errorBars.Points.Add(DataPoint.Undefined);
+        foreach (var y in new[] { lo, hi })
+        {
+            errorBars.Points.Add(new DataPoint(s.bits - 0.2, y)); errorBars.Points.Add(new DataPoint(s.bits + 0.2, y)); errorBars.Points.Add(DataPoint.Undefined);
+        }
+    }
     var meanLine = new LineSeries { Color = OxyColors.DarkRed, StrokeThickness = 1.2, LineStyle = LineStyle.Solid };
     foreach (var s in summary) meanLine.Points.Add(new DataPoint(s.bits, s.mean));
     var theory = new LineSeries { Title = $"теорія: 2^біт / {rate / 1e6:F1} млн хеш/с", Color = OxyColors.Gray, LineStyle = LineStyle.Dash };
     for (double b = levels.Min() - 1; b <= levels.Max() + 1; b += 0.5) theory.Points.Add(new DataPoint(b, Math.Pow(2, b) / rate));
-    model.Series.Add(theory); model.Series.Add(runsSeries); model.Series.Add(meanLine); model.Series.Add(meanSeries);
+    model.Series.Add(theory); model.Series.Add(runsSeries); model.Series.Add(meanLine); model.Series.Add(errorBars); model.Series.Add(meanSeries);
     var png = Path.Combine(outDir, "difficulty_plot.png");
     OxyPlot.SkiaSharp.PngExporter.Export(model, png, 1100, 650, 96);
     Console.WriteLine($"\nCSV і графік: {outDir}");
